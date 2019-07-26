@@ -1,0 +1,71 @@
+with
+
+-- set the rec days, accounting for weekends and holidays
+
+-- this generates a sequence of 10 weekdays prior to the chosen rec date
+weekdays as (
+select
+
+	date_series dt
+
+from 
+	unnest(
+	  generate_date_array(
+		date_sub({REC}, interval 10 day)
+		, date_sub({REC}, interval 1 day)
+	  )
+	) date_series
+
+where 
+	extract(dayofweek from date_series) not in (1,7)
+)
+
+-- this generates a list of dates entered as holidays
+, holidays as (
+select safe.parse_date('%Y-%m-%d', dt) dt
+from unnest([{HOLIDAYS}]) dt
+)
+
+
+-- this takes holidays out of the list of calendar dates
+, businessdays as 
+(
+select
+
+	row_number() over (order by weekdays.dt desc) r
+	, weekdays.dt
+	
+from weekdays
+
+left join holidays on holidays.dt = weekdays.dt
+
+where 
+	holidays.dt is null
+)
+
+
+-- this (1) pivots from rows to columns, and (2) converts to 5pm London time
+, rec_dates as
+(
+select
+  
+	datetime(
+	  timestamp(
+	  	datetime_add(datetime(r1.dt), interval 17 hour)
+	  , "Europe/London")
+	, "UTC") d_1  
+  
+	, datetime(
+	  timestamp(
+	  	datetime_add(datetime(r2.dt), interval 17 hour)
+	  , "Europe/London")
+	, "UTC") d_2
+
+from businessdays r1
+
+cross join (select dt from businessdays where r = 2) r2
+
+where r = 1
+)
+
+select * from rec_dates
